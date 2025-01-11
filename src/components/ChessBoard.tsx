@@ -15,6 +15,7 @@ interface ChessBoardProps {
 export function ChessBoard({ onGameStateChange, score, onScoreChange, isTimerExpired, onMove }: ChessBoardProps) {
   const [game, setGame] = useState(new Chess());
   const [isPlayerTurn, setIsPlayerTurn] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     updateGameState();
@@ -44,25 +45,30 @@ export function ChessBoard({ onGameStateChange, score, onScoreChange, isTimerExp
     resetGame();
   };
 
-  const formatMove = (from: string, to: string): string => {
+  const formatMove = (from: string, to: string, piece: any, capture: boolean, check: boolean): string => {
     try {
-      const piece = game.get(from);
-      if (!piece) return `${from}-${to}`;
-      
       const pieceSymbol = piece.type.toUpperCase();
-      const capture = game.get(to) ? 'x' : '';
-      return `${pieceSymbol}${from}${capture}${to}`;
+      const captureSymbol = capture ? 'x' : '';
+      const checkSymbol = check ? '+' : '';
+      return `${pieceSymbol}${from}${captureSymbol}${to}${checkSymbol}`;
     } catch (error) {
-      console.error('Error formatting move:', error);
+      console.error('Erro ao formatar movimento:', error);
       return `${from}-${to}`;
     }
   };
 
   const makeMove = async (move: any) => {
+    if (isProcessing) return false;
+    
     try {
+      setIsProcessing(true);
+      const piece = game.get(move.from);
+      const capture = game.get(move.to) !== null;
+      
       const result = game.move(move);
       if (result) {
-        const moveNotation = formatMove(move.from, move.to);
+        const isCheck = game.isCheck();
+        const moveNotation = formatMove(move.from, move.to, piece, capture, isCheck);
         onMove(moveNotation);
         
         setGame(new Chess(game.fen()));
@@ -72,15 +78,19 @@ export function ChessBoard({ onGameStateChange, score, onScoreChange, isTimerExp
           try {
             const aiMove = await makeAIMove(game.fen());
             const [from, to] = [aiMove.slice(0, 2), aiMove.slice(2, 4)];
+            const aiPiece = game.get(from);
+            const aiCapture = game.get(to) !== null;
+            
             const aiMoveResult = game.move({ from, to, promotion: 'q' });
             
             if (aiMoveResult) {
-              const aiMoveNotation = formatMove(from, to);
+              const aiIsCheck = game.isCheck();
+              const aiMoveNotation = formatMove(from, to, aiPiece, aiCapture, aiIsCheck);
               onMove(aiMoveNotation);
               setGame(new Chess(game.fen()));
             }
           } catch (error) {
-            console.error('Error during AI move:', error);
+            console.error('Erro durante movimento da IA:', error);
           } finally {
             setIsPlayerTurn(true);
           }
@@ -89,8 +99,11 @@ export function ChessBoard({ onGameStateChange, score, onScoreChange, isTimerExp
         }
       }
     } catch (error) {
-      console.error('Error making move:', error);
+      console.error('Erro ao fazer movimento:', error);
+    } finally {
+      setIsProcessing(false);
     }
+    return true;
   };
 
   const handleGameOver = () => {
@@ -106,10 +119,11 @@ export function ChessBoard({ onGameStateChange, score, onScoreChange, isTimerExp
   const resetGame = () => {
     setGame(new Chess());
     setIsPlayerTurn(true);
+    setIsProcessing(false);
   };
 
   const onDrop = (sourceSquare: string, targetSquare: string) => {
-    if (!isPlayerTurn) return false;
+    if (!isPlayerTurn || isProcessing) return false;
 
     const move = {
       from: sourceSquare,
